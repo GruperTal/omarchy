@@ -6,8 +6,11 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 
 service="$ROOT/default/systemd/user/bt-agent.service"
 
-grep -Fx 'ExecCondition=/usr/bin/systemctl is-active --quiet bluetooth.service' "$service" >/dev/null
-pass "bt-agent skips when bluetooth.service is inactive"
+grep -Fx 'ExecCondition=/usr/bin/systemctl is-enabled --quiet bluetooth.service' "$service" >/dev/null ||
+  fail "bt-agent skips when bluetooth.service is disabled"
+grep -q '^ExecCondition=.*is-active' "$service" &&
+  fail "bt-agent gates on bluetooth.service being active, which races the system manager at login and skips the agent for the whole session"
+pass "bt-agent skips only when bluetooth.service is disabled, not when it is still starting"
 
 grep -Fx 'Restart=on-failure' "$service" >/dev/null
 pass "bt-agent still restarts after runtime failures"
