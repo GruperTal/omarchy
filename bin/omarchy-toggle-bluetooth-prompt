@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# omarchy:summary=Toggle showing and asking for Bluetooth pairing codes
+
+# nf-md-bluetooth, escaped so this file reads without a Nerd Font.
+readonly BLUETOOTH_GLYPH=$'\U000f00af'
+
+omarchy-toggle bluetooth-prompt
+
+# omarchy-bluetooth-agent picks its mode from the flag when it starts.
+systemctl --user restart bt-agent.service
+
+if omarchy-toggle-enabled bluetooth-prompt; then
+  omarchy-notification-send -g "$BLUETOOTH_GLYPH" "Bluetooth pairing codes enabled" "Keyboards pair with a code typed on the keyboard"
+else
+  omarchy-notification-send -g "$BLUETOOTH_GLYPH" "Bluetooth pairing codes disabled" "Devices pair without asking"
+fi

@@ -1,0 +1,203 @@
+#!/usr/bin/python3
+
+# omarchy:summary=Run the Bluetooth pairing agent behind bt-agent.service
+# omarchy:hidden=true
+
+# By default this hands straight over to bluez-tools' bt-agent, which pairs
+# without asking. With `omarchy toggle bluetooth prompt` on, it registers its
+# own KeyboardDisplay agent instead, so a keyboard pairs with a passkey typed on
+# the keyboard itself rather than an unauthenticated Just Works bond. Codes are
+# shown as notifications, and questions go through the Omarchy menu.
+#
+# Python rather than bash because an agent is a D-Bus object BlueZ calls into,
+# and it has to stay exported on one connection for as long as it is
+# registered.
+
+import os
+import re
+import subprocess
+import sys
+
+TOGGLE = os.path.expanduser("~/.local/state/omarchy/toggles/bluetooth-prompt")
+
+if not os.path.exists(TOGGLE):
+    os.execv("/usr/bin/bt-agent", ["bt-agent", "-c", "NoInputNoOutput"])
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+AGENT_PATH = "/org/omarchy/bluetooth/agent"
+GLYPH = "\U000f00af"  # nf-md-bluetooth
+
+INTERFACE = Gio.DBusNodeInfo.new_for_xml("""
+<node>
+  <interface name="org.bluez.Agent1">
+    <method name="Release"/>
+    <method name="RequestPinCode">
+      <arg type="o" direction="in"/><arg type="s" direction="out"/>
+    </method>
+    <method name="DisplayPinCode">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/>
+    </method>
+    <method name="RequestPasskey">
+      <arg type="o" direction="in"/><arg type="u" direction="out"/>
+    </method>
+    <method name="DisplayPasskey">
+      <arg type="o" direction="in"/><arg type="u" direction="in"/><arg type="q" direction="in"/>
+    </method>
+    <method name="RequestConfirmation">
+      <arg type="o" direction="in"/><arg type="u" direction="in"/>
+    </method>
+    <method name="RequestAuthorization">
+      <arg type="o" direction="in"/>
+    </method>
+    <method name="AuthorizeService">
+      <arg type="o" direction="in"/><arg type="s" direction="in"/>
+    </method>
+    <method name="Cancel"/>
+  </interface>
+</node>
+""").interfaces[0]
+
+bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+loop = GLib.MainLoop()
+
+# BlueZ sends one request at a time and answers a second with "busy", so a
+# single slot is enough. Nor is timing out a question ours to do: BlueZ gives
+# up after its own request timeout and calls Cancel.
+pending = {"invocation": None, "menu": None, "notification": None}
+
+
+def device_name(path):
+    try:
+        reply = bus.call_sync(
+            "org.bluez", path, "org.freedesktop.DBus.Properties", "Get",
+            GLib.Variant("(ss)", ("org.bluez.Device1", "Alias")),
+            GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE, 2000, None)
+        return reply.unpack()[0]
+    except GLib.Error:
+        return path.rsplit("dev_", 1)[-1].replace("_", ":")
+
+
+# Replaces the previous pairing notification rather than stacking a new one.
+def notify(*text):
+    args = ["omarchy-notification-send", "-p", "-g", GLYPH, "-u", "critical", "-t", "30000"]
+    if pending["notification"]:
+        args += ["-r", pending["notification"]]
+    result = subprocess.run(args + list(text), capture_output=True, text=True)
+    pending["notification"] = result.stdout.strip() or None
+
+
+def reject(invocation, message="Rejected"):
+    invocation.return_dbus_error("org.bluez.Error.Rejected", message)
+
+
+# Opens an Omarchy menu prompt and hands its answer (None when dismissed) to
+# `answer`, which returns the D-Bus reply or raises ValueError to reject.
+def ask(invocation, argv, answer):
+    menu = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE)
+    pending.update(invocation=invocation, menu=menu)
+
+    def done(proc, result):
+        try:
+            _, stdout, _ = proc.communicate_utf8_finish(result)
+        except GLib.Error:
+            stdout = None
+        if pending["invocation"] is not invocation:
+            return  # Canceled while the menu was open, and already answered.
+        pending.update(invocation=None, menu=None)
+        text = stdout.strip() if proc.get_successful() and stdout else None
+        try:
+            invocation.return_value(answer(text))
+        except ValueError:
+            reject(invocation)
+
+    menu.communicate_utf8_async(None, None, done)
+
+
+def confirm(invocation, question, choice="Pair"):
+    def answer(text):
+        if text != choice:
+            raise ValueError
+        return None
+
+    ask(invocation, ["omarchy-menu-select", question, choice, "Cancel"], answer)
+
+
+def passkey(text):
+    if not text or not re.fullmatch(r"\d{1,6}", text):
+        raise ValueError
+    return GLib.Variant("(u)", (int(text),))
+
+
+def pincode(text):
+    if not text or len(text) > 16:
+        raise ValueError
+    return GLib.Variant("(s)", (text,))
+
+
+def on_call(connection, sender, path, interface, method, params, invocation):
+    args = params.unpack()
+
+    if method == "Release":
+        invocation.return_value(None)
+        loop.quit()
+
+    elif method == "DisplayPasskey":
+        device, key, entered = args
+        # Called again for each key the device reports typed; the code is
+        # already on screen by then.
+        if entered == 0:
+            notify("Type %06d on %s" % (key, device_name(device)), "Then press Enter on it to finish pairing")
+        invocation.return_value(None)
+
+    elif method == "DisplayPinCode":
+        device, pin = args
+        notify("Type %s on %s" % (pin, device_name(device)), "Then press Enter on it to finish pairing")
+        invocation.return_value(None)
+
+    elif method == "RequestConfirmation":
+        device, key = args
+        confirm(invocation, "Does %s show %06d?" % (device_name(device), key))
+
+    elif method == "RequestAuthorization":
+        confirm(invocation, "Pair with %s?" % device_name(args[0]))
+
+    elif method == "AuthorizeService":
+        confirm(invocation, "Allow %s to connect?" % device_name(args[0]), "Allow")
+
+    elif method == "RequestPasskey":
+        ask(invocation, ["omarchy-menu-input", "Passkey for %s" % device_name(args[0])], passkey)
+
+    elif method == "RequestPinCode":
+        ask(invocation, ["omarchy-menu-input", "PIN for %s" % device_name(args[0])], pincode)
+
+    elif method == "Cancel":
+        waiting, menu = pending["invocation"], pending["menu"]
+        pending.update(invocation=None, menu=None)
+        if waiting:
+            reject(waiting, "Canceled")
+        if menu:
+            # Killing the helper would leave its menu on screen; hiding the
+            # menu makes the helper return on its own.
+            subprocess.run(["omarchy-shell", "shell", "hide", "omarchy.menu"], capture_output=True)
+        if pending["notification"]:
+            notify("Bluetooth pairing canceled")
+        invocation.return_value(None)
+
+
+bus.register_object_with_closures2(AGENT_PATH, INTERFACE, on_call, None, None)
+
+manager = Gio.DBusProxy.new_sync(
+    bus, Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES, None,
+    "org.bluez", "/org/bluez", "org.bluez.AgentManager1", None)
+manager.RegisterAgent("(os)", AGENT_PATH, "KeyboardDisplay")
+manager.RequestDefaultAgent("(o)", AGENT_PATH)
+
+loop.run()
+
+# BlueZ only releases its agents when bluetoothd goes away. Failing lets
+# Restart=on-failure register again once it is back.
+sys.exit(1)

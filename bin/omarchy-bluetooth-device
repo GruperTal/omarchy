@@ -32,7 +32,9 @@ trust_device() {
 case "$action" in
   pair)
     power_on
-    timeout 20s bluetoothctl pair "$address" >/dev/null 2>&1 || true
+    # Long enough to type a passkey: BlueZ abandons the pairing as soon as
+    # bluetoothctl, the caller of Pair, goes away.
+    timeout 60s bluetoothctl pair "$address" >/dev/null 2>&1 || true
     trust_device
     timeout 20s bluetoothctl connect "$address" >/dev/null 2>&1 || true
     ;;
