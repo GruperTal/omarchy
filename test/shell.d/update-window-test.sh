@@ -92,8 +92,8 @@ assert(!s.opened && U.transfer(s) > 0.9, 'a finished transaction is nearly done'
 assert(U.namesSubject('google-chrome', 'Chrome') && !U.namesSubject('libfoo', 'Chrome'), 'the app tile follows the package named like it')
 const installed = U.installedAtListed('spotifast-bin 0.14.0-1\ncursor-bin 1.7.38-1\n', { 'spotifast-bin': '0.14.0-1', 'cursor-bin': '1.7.44-1', 'slack-desktop': '4.46.101-1' })
 assertEqual(JSON.stringify(installed), '{"spotifast-bin":true}', 'only packages installed at the listed version count as updated')
-U.feed(s, '\x1b]5150;opened\x07\x1b]5150;input;no;Icon URL/name> ;Could not fetch favicon\x07')
-assert(s.opened, 'an installer that opens the app itself is noticed')
+U.feed(s, '\x1b]5150;opened;google-chrome\x07\x1b]5150;input;no;Icon URL/name> ;Could not fetch favicon\x07')
+assertEqual(s.opened, 'google-chrome', 'an installer that opens the app itself names its package')
 assertEqual([s.ask.kind, s.ask.secret, s.ask.question, s.ask.hint].join(','), 'input,false,Icon URL/name> ,Could not fetch favicon', 'the gum input marker carries its prompt')
 U.feed(s, '\n\x1b]5150;confirm;no;Remove 2 packages?\x07')
 assertEqual([s.ask.kind, s.ask.yes, s.ask.question].join(','), 'confirm,false,Remove 2 packages?', 'the gum confirm marker carries its default')
@@ -140,14 +140,18 @@ rm -rf "$probe"
 pass 'a launched app gets the environment back'
 
 # The launch tells the window first, on the terminal, since the installer's
-# launch line sends the app's output to /dev/null.
+# launch line sends the app's output to /dev/null. It names the package the
+# program belongs to, so a folder opened after the install is not the app.
 if command -v script >/dev/null; then
   probe=$(mktemp -d)
   ln -s "$ROOT/shell/plugins/update/shims/launch" "$probe/true"
-  output=$(script -qec "$probe/true" /dev/null 2>&1)
+  output=$(script -qec "$probe/true uwsm-app -- /usr/bin/bash -c :" /dev/null 2>&1)
+  [[ $output == *$'\e]5150;opened;bash\a'* ]] || fail 'the window hears which app the installer launches' "$output"
+  pass 'the window hears which app the installer launches'
+  output=$(script -qec "$probe/true gtk-launch not.Installed" /dev/null 2>&1)
   rm -rf "$probe"
-  [[ $output == *$'\e]5150;opened\a'* ]] || fail 'the window hears of an app the installer launches' "$output"
-  pass 'the window hears of an app the installer launches'
+  [[ $output == *$'\e]5150;opened;not.Installed\a'* ]] || fail 'a launch no package owns is named as it is' "$output"
+  pass 'a launch no package owns is named as it is'
 fi
 
 # Inside the window, an installer handing over to another one runs in place.

@@ -93,7 +93,7 @@ function create() {
     activityArg: "",  // the package or hook it is about
     subject: "",      // "Spotify", from an installer's "Installing Spotify..."
     note: "",         // what an installer said after pacman was done
-    opened: false,    // the installer launched the app itself
+    opened: "",       // the package whose app the installer launched itself
     reboot: "",       // why the update wants a restart
     packages: {},     // name -> "active" | "done"
     seen: [],         // every package pacman touched, in order
@@ -235,7 +235,7 @@ function line(s, text, complete) {
 
 // OSC 5150 markers: from run.sh (exit), sudo's prompt (password), and the
 // stand-ins one-click installs see: gum (confirm, input) and the launch of an
-// app (opened).
+// app (opened, with its package).
 function marker(s, body) {
   var parts = body.split(";")
   s.markers++
@@ -250,7 +250,7 @@ function marker(s, body) {
   } else if (parts[0] === "confirm") {
     s.ask = { id: "m" + s.markers, kind: "confirm", yes: parts[1] !== "no", question: parts.slice(2).join(";") }
   } else if (parts[0] === "opened") {
-    s.opened = true
+    s.opened = parts[1] || ""
   }
 }
 

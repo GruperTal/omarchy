@@ -5,9 +5,19 @@
 # stop here: an editor's terminal must put sudo and gum questions on screen, and
 # omarchy-launch-install from it must open a window. The shims leave PATH, the
 # markers go, and TERM is unset as it is in the session that started the window.
-# The window hears of the launch first, so it offers no second Open; the launch
-# line's own redirections leave the terminal as the one place to say so.
-printf '\e]5150;opened\a' 2>/dev/null >/dev/tty
+# The window hears of the launch first, so it offers no second Open for that
+# app; the launch line's own redirections leave the terminal as the one place
+# to say so. The app is the package owning the desktop file gtk-launch gets or
+# the program run, as the window names its tiles, so a folder an installer
+# opens afterwards (RetroArch's ~/Games) is not taken for the app.
 PATH=${PATH#"$(dirname "$(realpath "$0")"):"}
+chain=("$@")
+while (( ${#chain[@]} )) && [[ ${chain[0]} == -* || ${chain[0]} == "setsid" || ${chain[0]} == "uwsm-app" ]]; do chain=("${chain[@]:1}"); done
+if [[ ${chain[0]} == "gtk-launch" ]]; then
+  app=$(pacman -Qqo "/usr/share/applications/${chain[1]}.desktop" 2>/dev/null) || app=${chain[1]}
+else
+  app=$(pacman -Qqo "$(type -P "${chain[0]}")" 2>/dev/null) || app=${chain[0]##*/}
+fi
+printf '\e]5150;opened;%s\a' "$app" 2>/dev/null >/dev/tty
 unset OMARCHY_UPDATE_WINDOW SUDO_PROMPT TERM
 exec "/usr/bin/${0##*/}" "$@"

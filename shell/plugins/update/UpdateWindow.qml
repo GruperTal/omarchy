@@ -418,8 +418,10 @@ Item {
     return false
   }
 
+  // The desktop entry Open launches: the first tile's, unless the installer
+  // launched that app itself.
   readonly property string openable: {
-    for (var i = 0; i < apps.count; i++) if (apps.get(i).desktop) return apps.get(i).desktop
+    for (var i = 0; i < apps.count; i++) if (apps.get(i).desktop) return apps.get(i).name === st.opened ? "" : apps.get(i).desktop
     return ""
   }
 
@@ -875,7 +877,7 @@ Item {
             onClicked: root.start()
           }
           Button {
-            visible: root.isTask && root.phase === "done" && root.openable !== "" && !root.st.opened
+            visible: root.isTask && root.phase === "done" && root.openable !== ""
             bordered: true
             foreground: root.accent
             text: I18n.t("update.open").arg(root.st.subject || I18n.t("update.openApp"))
