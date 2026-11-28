@@ -92,7 +92,7 @@ assert(!s.opened && U.transfer(s) > 0.9, 'a finished transaction is nearly done'
 assert(U.namesSubject('google-chrome', 'Chrome') && !U.namesSubject('libfoo', 'Chrome'), 'the app tile follows the package named like it')
 const installed = U.installedAtListed('spotifast-bin 0.14.0-1\ncursor-bin 1.7.38-1\n', { 'spotifast-bin': '0.14.0-1', 'cursor-bin': '1.7.44-1', 'slack-desktop': '4.46.101-1' })
 assertEqual(JSON.stringify(installed), '{"spotifast-bin":true}', 'only packages installed at the listed version count as updated')
-U.feed(s, 'Opening Spotify...\r\n\x1b]5150;input;no;Icon URL/name> ;Could not fetch favicon\x07')
+U.feed(s, '\x1b]5150;opened\x07\x1b]5150;input;no;Icon URL/name> ;Could not fetch favicon\x07')
 assert(s.opened, 'an installer that opens the app itself is noticed')
 assertEqual([s.ask.kind, s.ask.secret, s.ask.question, s.ask.hint].join(','), 'input,false,Icon URL/name> ,Could not fetch favicon', 'the gum input marker carries its prompt')
 U.feed(s, '\n\x1b]5150;confirm;no;Remove 2 packages?\x07')
@@ -138,6 +138,17 @@ rm -rf "$probe"
 [[ $(readlink "$ROOT/shell/plugins/update/shims/setsid") == "launch" && $(readlink "$ROOT/shell/plugins/update/shims/uwsm-app") == "launch" && $(readlink "$ROOT/shell/plugins/update/shims/gtk-launch") == "launch" ]] ||
   fail 'a launched app gets the environment back' 'setsid, uwsm-app and gtk-launch should link to shims/launch'
 pass 'a launched app gets the environment back'
+
+# The launch tells the window first, on the terminal, since the installer's
+# launch line sends the app's output to /dev/null.
+if command -v script >/dev/null; then
+  probe=$(mktemp -d)
+  ln -s "$ROOT/shell/plugins/update/shims/launch" "$probe/true"
+  output=$(script -qec "$probe/true" /dev/null 2>&1)
+  rm -rf "$probe"
+  [[ $output == *$'\e]5150;opened\a'* ]] || fail 'the window hears of an app the installer launches' "$output"
+  pass 'the window hears of an app the installer launches'
+fi
 
 # Inside the window, an installer handing over to another one runs in place.
 output=$(OMARCHY_UPDATE_WINDOW=1 "$ROOT/bin/omarchy-launch-install" 'echo inline')

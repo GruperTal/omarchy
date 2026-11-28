@@ -422,7 +422,6 @@ Item {
     for (var i = 0; i < apps.count; i++) if (apps.get(i).desktop) return apps.get(i).desktop
     return ""
   }
-  readonly property bool launched: /gtk-launch|uwsm-app/.test(task) || st.opened
 
   // After the compositor closes it, the window only maps again from hidden.
   function present() {
@@ -876,7 +875,7 @@ Item {
             onClicked: root.start()
           }
           Button {
-            visible: root.isTask && root.phase === "done" && root.openable !== "" && !root.launched
+            visible: root.isTask && root.phase === "done" && root.openable !== "" && !root.st.opened
             bordered: true
             foreground: root.accent
             text: I18n.t("update.open").arg(root.st.subject || I18n.t("update.openApp"))

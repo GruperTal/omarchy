@@ -169,10 +169,6 @@ function line(s, text, complete) {
     if (!s.subject) s.subject = m[1]
     return
   }
-  if (complete && /^Opening .+\.{3}$/.test(trimmed)) {
-    s.opened = true
-    return
-  }
   if (complete && (m = trimmed.match(REBOOT))) {
     s.reboot = m[1]
     return
@@ -237,8 +233,9 @@ function line(s, text, complete) {
   if (!/^(warning:|::|==>|\s*->|\(|Total |Packages \(|Net Upgrade|resolving|looking for)/.test(trimmed)) s.note = trimmed
 }
 
-// OSC 5150 markers: from run.sh (exit), sudo's prompt (password), and the gum
-// stand-in that one-click installs see (confirm, input).
+// OSC 5150 markers: from run.sh (exit), sudo's prompt (password), and the
+// stand-ins one-click installs see: gum (confirm, input) and the launch of an
+// app (opened).
 function marker(s, body) {
   var parts = body.split(";")
   s.markers++
@@ -252,6 +249,8 @@ function marker(s, body) {
     s.ask = { id: "m" + s.markers, kind: "input", secret: parts[1] === "yes", question: parts[2] || "", hint: parts.slice(3).join(";"), yes: true }
   } else if (parts[0] === "confirm") {
     s.ask = { id: "m" + s.markers, kind: "confirm", yes: parts[1] !== "no", question: parts.slice(2).join(";") }
+  } else if (parts[0] === "opened") {
+    s.opened = true
   }
 }
 

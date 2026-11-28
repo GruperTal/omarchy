@@ -5,6 +5,9 @@
 # stop here: an editor's terminal must put sudo and gum questions on screen, and
 # omarchy-launch-install from it must open a window. The shims leave PATH, the
 # markers go, and TERM is unset as it is in the session that started the window.
+# The window hears of the launch first, so it offers no second Open; the launch
+# line's own redirections leave the terminal as the one place to say so.
+printf '\e]5150;opened\a' 2>/dev/null >/dev/tty
 PATH=${PATH#"$(dirname "$(realpath "$0")"):"}
 unset OMARCHY_UPDATE_WINDOW SUDO_PROMPT TERM
 exec "/usr/bin/${0##*/}" "$@"
